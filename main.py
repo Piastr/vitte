@@ -7,6 +7,9 @@ token = "token"
 bot = telebot.TeleBot(token)
 active_polls = {}
 user_votes = {}
+poll_results = {}
+poll_timers = {}
+sent_results = set()  # Используется для отслеживания отправленных результатов
 conn = sqlite3.connect('bot_users.db', check_same_thread=False)
 cursor = conn.cursor()
 
@@ -154,7 +157,8 @@ def handle_create_poll(message):
                                      'options': options}
 
             # Запуск таймера для завершения опроса через time_limit секунд
-            threading.Timer(time_limit, end_poll, args=(poll_id,)).start()
+            poll_timers[poll_id] = threading.Timer(time_limit, end_poll, args=(poll_id,))
+            poll_timers[poll_id].start()
 
     else:
         bot.send_message(message.chat.id, 'Вы не являетесь администратором и не можете создавать опросы.')
@@ -169,21 +173,42 @@ def end_poll(poll_id):
         options = poll_data['options']
         bot.stop_poll(chat_id, message_id)
 
-        # Подсчет результатов
+        # Подсчет результатов для текущего опроса
         results = [0] * len(options)
         if poll_id in user_votes:
             for votes in user_votes[poll_id].values():
                 for vote in votes:
                     results[vote] += 1
 
-        result_message = f"Голосование завершено.\n\nВопрос: {question}\n"
-        for i, option in enumerate(options):
-            result_message += f"{option}: {results[i]} голосов\n"
+        # Обновление общего результата голосования
+        if question not in poll_results:
+            poll_results[question] = {'results': [0] * len(options), 'options': options}
+        for i in range(len(results)):
+            poll_results[question]['results'][i] += results[i]
 
-        bot.send_message(chat_id, result_message)
         del active_polls[poll_id]
         if poll_id in user_votes:
             del user_votes[poll_id]
+
+        # Проверка на завершение всех опросов по данному вопросу
+        if not any(p['question'] == question for p in active_polls.values()):
+            if question not in sent_results:
+                send_poll_results_to_all_users(question)
+                sent_results.add(question)
+
+
+def send_poll_results_to_all_users(question):
+    results = poll_results[question]['results']
+    options = poll_results[question]['options']
+    result_message = f"Голосование завершено.\n\nВопрос: {question}\n"
+    for i, option in enumerate(options):
+        result_message += f"{option}: {results[i]} голосов\n"
+
+    cursor.execute("SELECT chat_id FROM users")
+    users = cursor.fetchall()
+    for user in users:
+        chat_id = user[0]
+        bot.send_message(chat_id, result_message)
 
 
 @bot.poll_answer_handler()
@@ -197,10 +222,6 @@ def handle_poll_answer(poll_answer):
 
     user_votes[poll_id][user_id] = selected_options
 
-    # Debugging prints
-    print(f"User {user_id} voted {selected_options} in poll {poll_id}")
-    print("Current user_votes dictionary:")
-    print(user_votes)
 
 
 if __name__ == '__main__':
