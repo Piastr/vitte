@@ -2,8 +2,15 @@ import threading
 import telebot
 from telebot import types
 import sqlite3
+import os
+from dotenv import load_dotenv
 
-token = "token"
+import lessons
+
+load_dotenv()
+
+token = os.getenv('TELEGRAM_BOT_TOKEN')
+
 bot = telebot.TeleBot(token)
 active_polls = {}
 user_votes = {}
@@ -40,22 +47,41 @@ def process_faculty_selection(message):
         handle_back(message)
     elif selected_faculty in faculty_mapping:
         faculty = faculty_mapping[selected_faculty]
-        bot.send_message(message.chat.id, "Для регистрации введите свой курс:")
+        markup_course = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        for i in range(4):
+            button = types.KeyboardButton(str(i + 1))
+            markup_course.add(button)
+        bot.send_message(message.chat.id, "Для регистрации выберите свой курс:", reply_markup=markup_course)
         bot.register_next_step_handler(message, lambda m: process_course_step(m, faculty))
     else:
         bot.send_message(message.chat.id, "Пожалуйста, выберите факультет с помощью кнопок.")
-
+        bot.register_next_step_handler(message, process_faculty_selection)  # Повторная регистрация обработчика
 
 def process_course_step(message, faculty):
     try:
         course = int(message.text)
         if 1 <= course <= 6:
-            bot.send_message(message.chat.id, f"Курс {course} выбран. Теперь введите номер группы:")
-            bot.register_next_step_handler(message, lambda m: process_group_step(m, course, faculty))
+            try:
+                markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+                groups = lessons.get_group(faculty, course)
+                for i in groups:
+                    button = types.KeyboardButton(i)
+                    markup.add(button)
+                bot.send_message(message.chat.id, f"Курс {course} выбран. Теперь выберите номер группы:", reply_markup=markup)
+                bot.register_next_step_handler(message, lambda m: process_group_step(m, course, faculty))
+            except:
+                bot.send_message(message.chat.id, "Выбор групп для данного курса пока не доступен, просьба ввести номер группы самостоятельно")
+                bot.register_next_step_handler(message, lambda m: process_group_step(m, course, faculty))
         else:
             bot.send_message(message.chat.id, "Пожалуйста, введите корректный номер курса (от 1 до 6).")
+            bot.register_next_step_handler(message, lambda m: process_course_step(m, faculty))  # Повторная регистрация обработчика
     except ValueError:
         bot.send_message(message.chat.id, "Пожалуйста, введите корректный номер курса (целое число).")
+        bot.register_next_step_handler(message, lambda m: process_course_step(m, faculty))  # Повторная регистрация обработчика
+def process_group_step(message, course, faculty):
+    group = message.text
+    # Здесь добавьте логику для обработки выбранной группы
+    bot.send_message(message.chat.id, f"Группа {group} на курсе {course} факультета {faculty} выбрана.")
 
 
 def process_group_step(message, course, faculty):

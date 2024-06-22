@@ -45,7 +45,7 @@ def get_lessons():
                 file_url = link.get('href')
                 if not file_url.startswith('http'):
                     file_url = requests.compat.urljoin(url, file_url)
-                file_name = f"{faculty} {study_form} {month}.xls"
+                file_name = f"{faculty} {study_form} {month} old.xls"
                 file_path = save_dir / file_name
                 response = requests.get(file_url)
                 with open(file_path, 'wb') as f:
